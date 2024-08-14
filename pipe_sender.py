@@ -87,8 +87,6 @@ class Network:
             "100",  # Set buffer size to a very small value (e.g., 100 bytes)
             "-max_delay",
             "0",  # Disable buffering
-            # "-pix_fmt",
-            # "gbrp",
             "-f",
             "hevc",  # Output format
             f"udp://{self.destination_ip}:{self.destination_port}",  # Destination IP and port

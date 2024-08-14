@@ -49,7 +49,35 @@ def start_receiving(conn_write, port, decoder):
         conn_write.close()
 
 
-def start_playing(conn_read):
+def start_playing(conn_read, port):
+    # 使用端口号创建唯一的窗口名称
+    window_name = f"UDP Stream {port}"
+
+    # 创建窗口
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+
+    # 创建一个Trackbar作为全屏切换按钮
+    cv2.createTrackbar("Full Screen", window_name, 0, 1, lambda x: toggle_fullscreen(x))
+
+    # 初始化全屏状态
+    is_fullscreen = False
+
+    # 定义切换全屏的函数
+    def toggle_fullscreen(value):
+        nonlocal is_fullscreen
+        is_fullscreen = not is_fullscreen
+        if is_fullscreen:
+            cv2.setWindowProperty(
+                window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
+            )
+        else:
+            cv2.setWindowProperty(
+                window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL
+            )
+        print(
+            f"Setting window property to {'FULLSCREEN' if is_fullscreen else 'NORMAL'}"
+        )
+
     # Keep reading frames from the pipe
     while True:
         frame_data = conn_read.recv()
@@ -58,7 +86,7 @@ def start_playing(conn_read):
 
         # Convert the byte data to a NumPy array
         frame = np.frombuffer(frame_data, dtype=np.uint8).reshape((1080, 1920, 3))
-        cv2.imshow("UDP Stream", frame)
+        cv2.imshow(window_name, frame)
 
         # Check for the 'q' key to quit
         if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -117,6 +145,7 @@ def find_free_port():
 
 
 def handle_discovery_request():
+    processes = []
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("", MULTICAST_PORT))
@@ -154,17 +183,20 @@ def handle_discovery_request():
                     receiving_process.start()
 
                     # Start the playing process
-                    playing_process = Process(target=start_playing, args=(parent_conn,))
+                    playing_process = Process(
+                        target=start_playing, args=(parent_conn, port)
+                    )
                     playing_process.start()
 
-                    # Wait for the playing process to finish (it will exit when 'q' is pressed)
-                    playing_process.join()
-                    receiving_process.terminate()
-
-                    # Close connections
-                    parent_conn.close()
+                    processes.append(receiving_process)
+                    processes.append(playing_process)
     finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
         sock.close()
+        if "parent_conn" in locals() and parent_conn:
+            parent_conn.close()
 
 
 if __name__ == "__main__":
