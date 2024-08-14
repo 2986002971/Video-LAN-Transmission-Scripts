@@ -25,7 +25,7 @@ def start_receiving(conn_write, port, decoder):
         "-f",
         "rawvideo",
         "-pix_fmt",
-        "gbr",
+        "bgr24",
         "-fflags",
         "+genpts+nobuffer",  # Disable buffering
         "-flush_packets",
