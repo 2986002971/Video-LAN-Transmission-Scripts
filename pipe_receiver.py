@@ -9,11 +9,10 @@ from multiprocessing import Process, Pipe
 
 MULTICAST_GROUP = "224.0.0.1"
 MULTICAST_PORT = 12345
-BROADCAST_PORT = MULTICAST_PORT
 DISCOVERY_TIMEOUT = 2  # seconds
 
 
-def start_receiving(conn_write, decoder):
+def start_receiving(conn_write, port, decoder):
     # Define the FFmpeg command
     ffmpeg_command = [
         "ffmpeg",
@@ -22,13 +21,11 @@ def start_receiving(conn_write, decoder):
         "-f",
         "hevc",
         "-i",
-        "udp://0.0.0.0:1234",
+        f"udp://0.0.0.0:{port}",
         "-f",
         "rawvideo",
         "-pix_fmt",
-        "bgr24",
-        # "-fps_mode",
-        # "vfr",
+        "gbr",
         "-fflags",
         "+genpts+nobuffer",  # Disable buffering
         "-flush_packets",
@@ -44,7 +41,6 @@ def start_receiving(conn_write, decoder):
         # Write the output of FFmpeg to the pipe
         while True:
             chunk = ffmpeg_process.stdout.read(1920 * 1080 * 3)  # Read a frame
-            # Assuming 1920x1080 resolution and BGR24 (to be changed)
             if not chunk:
                 break
             conn_write.send(chunk)
@@ -61,7 +57,6 @@ def start_playing(conn_read):
             break
 
         # Convert the byte data to a NumPy array
-        # Assuming 1920x1080 resolution and BGR24 (to be changed)
         frame = np.frombuffer(frame_data, dtype=np.uint8).reshape((1080, 1920, 3))
         cv2.imshow("UDP Stream", frame)
 
@@ -115,6 +110,12 @@ def get_local_ip():
     return IP
 
 
+def find_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
+
+
 def handle_discovery_request():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -128,40 +129,43 @@ def handle_discovery_request():
             if data == b"DISCOVER":
                 # Get the non-loopback IP address
                 local_ip = get_local_ip()
+                port = find_free_port()
                 if local_ip:
-                    sock.sendto(local_ip.encode(), addr)
+                    sock.sendto(f"{local_ip}:{port}".encode(), addr)
+
+                    # Check if the hevc_cuvid decoder is available
+                    if check_cuvid():
+                        decoder = "hevc_cuvid"
+                    else:
+                        decoder = "hevc"
+
+                    # Create a pipe for communication between processes
+                    parent_conn, child_conn = Pipe(duplex=False)
+
+                    # Start the receiving process
+                    receiving_process = Process(
+                        target=start_receiving,
+                        args=(
+                            child_conn,
+                            port,
+                            decoder,
+                        ),
+                    )
+                    receiving_process.start()
+
+                    # Start the playing process
+                    playing_process = Process(target=start_playing, args=(parent_conn,))
+                    playing_process.start()
+
+                    # Wait for the playing process to finish (it will exit when 'q' is pressed)
+                    playing_process.join()
+                    receiving_process.terminate()
+
+                    # Close connections
+                    parent_conn.close()
     finally:
         sock.close()
 
 
 if __name__ == "__main__":
-    # Check if the hevc_cuvid decoder is available
-    if check_cuvid():
-        decoder = "hevc_cuvid"
-    else:
-        decoder = "hevc"
-
-    discovery_listener = Process(target=handle_discovery_request)
-    discovery_listener.start()
-
-    # Create a pipe for communication between processes
-    parent_conn, child_conn = Pipe(duplex=False)
-
-    receiving_process = Process(
-        target=start_receiving,
-        args=(
-            child_conn,
-            decoder,
-        ),
-    )
-    receiving_process.start()
-
-    playing_process = Process(target=start_playing, args=(parent_conn,))
-    playing_process.start()
-
-    # Wait for the playing process to finish (it will exit when 'q' is pressed)
-    playing_process.join()
-    receiving_process.terminate()
-
-    # Close connections
-    parent_conn.close()
+    handle_discovery_request()
