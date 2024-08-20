@@ -56,28 +56,6 @@ def start_playing(conn_read, port):
     # 创建窗口
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
-    # 创建一个Trackbar作为全屏切换按钮
-    cv2.createTrackbar("Full Screen", window_name, 0, 1, lambda x: toggle_fullscreen(x))
-
-    # 初始化全屏状态
-    is_fullscreen = False
-
-    # 定义切换全屏的函数
-    def toggle_fullscreen(value):
-        nonlocal is_fullscreen
-        is_fullscreen = not is_fullscreen
-        if is_fullscreen:
-            cv2.setWindowProperty(
-                window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
-            )
-        else:
-            cv2.setWindowProperty(
-                window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL
-            )
-        print(
-            f"Setting window property to {'FULLSCREEN' if is_fullscreen else 'NORMAL'}"
-        )
-
     # Keep reading frames from the pipe
     while True:
         frame_data = conn_read.recv()
